@@ -609,7 +609,24 @@ func (r *ReconcilePerconaServerMongoDB) handleReplsetInit(ctx context.Context, c
 			return fmt.Errorf("exec rs.initiate: %v / %s / %s", err, outb.String(), errb.String())
 		}
 
-		time.Sleep(time.Second * 5)
+		// wait for the replset to be initialized
+		counter := 0
+		for {
+			errb.Reset()
+			outb.Reset()
+			err = r.clientcmd.Exec(ctx, &pod, "mongod", []string{mongoCmd, "--eval", "rs.status().ok"}, nil, &outb, &errb, false)
+			if err != nil {
+				return fmt.Errorf("exec rs.status: %v / %s / %s", err, outb.String(), errb.String())
+			}
+			if strings.Contains(outb.String(), "true") {
+				break
+			}
+			time.Sleep(time.Second * 5)
+			counter++
+			if counter > 10 {
+				return errors.New("failed to initialize replset")
+			}
+		}
 
 		userAdmin, err := getInternalCredentials(ctx, r.client, cr, api.RoleUserAdmin)
 		if err != nil {
